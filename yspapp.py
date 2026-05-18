@@ -5,446 +5,103 @@ import random
 import struct
 import time
 import uuid
+from datetime import datetime, timedelta
+from functools import lru_cache
+import hashlib
+
 import requests
 from construct import Struct, Int16ub, Int32ub, Bytes, this
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse, JSONResponse
 import uvicorn
-int16_str_struct = Struct(
-    "length" / Int16ub,
-    "value" / Bytes(this.length)
-)
-signature_uid_struct = Struct(
-    "signature" / int16_str_struct,
-    "uid" / int16_str_struct
-)
-int32_str_struct =Struct(
-    "length" / Int32ub,
-    "value" / Bytes(this.length)
-)
 
-ckey_struct = Struct(
-    "header" / Bytes(12),
-    "Platform" / Bytes(4),
-    "signature" / Bytes(4),
-    "Timestamp" / Bytes(4),
-    "Sdtfrom" / int16_str_struct,
-    "randFlag" / int16_str_struct,
-    "appVer" / int16_str_struct,
-    "vid" / int16_str_struct,
-    "guid" / int16_str_struct,
-    "part1" / Int32ub,
-    "isDlna" / Int32ub,
-    "uid" / int16_str_struct,
-    "bundleID" / int16_str_struct,
-    "uuid4" / int16_str_struct,
-    "bundleID1"/ int16_str_struct,
-    "ckeyVersion" / int16_str_struct,
-    "packageName" / int16_str_struct,
-    "platform_str" / int16_str_struct,
-    "ex_json_bus"/ int16_str_struct,
-    "ex_json_vs" / int16_str_struct,
-    "ck_guard_time" / int16_str_struct
-)
-ckey42_struct =Struct(
-    "length" / Int16ub,
-    "value" / Bytes(this.length)
-)
-DELTA = 0x9e3779b9
-ROUNDS = 16
-LOG_ROUNDS = 4
-SALT_LEN = 2
-ZERO_LEN = 7
-TEA_CKEY =bytes.fromhex('59b2f7cf725ef43c34fdd7c123411ed3')
-XOR_KEY = [0x84, 0x2E, 0xED, 0x08, 0xF0, 0x66, 0xE6, 0xEA, 0x48, 0xB4, 0xCA, 0xA9, 0x91, 0xED, 0x6F, 0xF3];
-STANDARD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-CUSTOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-='
-class Size_t(object):
-    value = 0
+# ==================== 缓存配置 ====================
+CACHE_TTL = 80  # 缓存80秒，与PHP版一致
+cache = {}
 
-    def __init__(self, value):
-        self.value = value
-def encrypt(key: bytes, sIn: bytes, iLength: int, buffer: bytearray) -> None:
-    outlen: Size_t = Size_t(oi_symmetry_encrypt2_len(iLength))
+def get_cache_key(cnlid: str, livepid: str, defn: str, playseek: str = None) -> str:
+    """生成缓存键"""
+    if playseek:
+        return f"playback:{cnlid}:{livepid}:{defn}:{playseek}"
+    return f"live:{cnlid}:{livepid}:{defn}"
 
-    oi_symmetry_encrypt2(sIn, iLength, key, buffer, outlen)
+def get_cached_url(cnlid: str, livepid: str, defn: str, playseek: str = None):
+    """获取缓存的播放地址"""
+    key = get_cache_key(cnlid, livepid, defn, playseek)
+    if key in cache:
+        cached_time, url = cache[key]
+        if datetime.now() - cached_time < timedelta(seconds=CACHE_TTL):
+            return url
+        # 过期则删除
+        del cache[key]
+    return None
 
-    while len(buffer) > outlen.value:
-        buffer.pop()
-def decrypt(key: bytes, sIn: bytes, iLength: int, buffer: bytearray) -> bool:
-    outlen: Size_t = Size_t(iLength)
+def set_cached_url(cnlid: str, livepid: str, defn: str, url: str, playseek: str = None):
+    """缓存播放地址"""
+    key = get_cache_key(cnlid, livepid, defn, playseek)
+    cache[key] = (datetime.now(), url)
 
-    if not oi_symmetry_decrypt2(sIn, iLength, key, buffer, outlen):
-        return False
-
-    while len(buffer) > outlen.value:
-        buffer.pop()
-    return True
-# pOutBuffer、pInBuffer均为8byte, pKey为16byte
-def TeaEncryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
-    k = list()
-    pOutBuf.clear()
-    # plain-text is TCP/IP-endian
-    # GetBlockBigEndian(in, y, z)
-    y, z = struct.unpack("!II", pInBuf[:8])
-
-    # TCP/IP network byte order (which is big-endian)
-
-    for i in struct.unpack("!IIII", pKey):
-        # now key is TCP/IP-endian
-        k.append(i)
-
-    sum = 0
-    for i in range(ROUNDS):
-        sum += DELTA
-        sum = ctypes.c_uint32(sum).value
-        y += ((z << 4) + k[0]) ^ (z + sum) ^ ((z >> 5) + k[1])
-        y = ctypes.c_uint32(y).value
-        z += ((y << 4) + k[2]) ^ (y + sum) ^ ((y >> 5) + k[3])
-        z = ctypes.c_uint32(z).value
-
-    for i in struct.pack("!II", y, z):
-        pOutBuf.append(i)
-
-    # now encrypted buf is TCP/IP-endian
-# pOutBuffer、pInBuffer均为8byte, pKey为16byte
-def TeaDecryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
-    k = list()
-    pOutBuf.clear()
-    # now encrypted buf is TCP/IP-endian
-    # TCP/IP network byte order (which is big-endian).
-    y, z = struct.unpack("!II", pInBuf[:8])
-
-    for i in struct.unpack("!IIII", pKey):
-        # key is TCP/IP-endian;
-        k.append(i)
-
-    sum = ctypes.c_uint32(DELTA << LOG_ROUNDS).value
-    for i in range(ROUNDS):
-        z -= ((y << 4) + k[2]) ^ (y + sum) ^ ((y >> 5) + k[3])
-        z = ctypes.c_uint32(z).value
-        y -= ((z << 4) + k[0]) ^ (z + sum) ^ ((z >> 5) + k[1])
-        y = ctypes.c_uint32(y).value
-        sum -= DELTA
-
-    for i in struct.pack("!II", y, z):
-        pOutBuf.append(i)
-    # now plain-text is TCP/IP-endian;
-# pKey为16byte
-# 输入:nInBufLen为需加密的明文部分(Body)长度
-# 输出:返回为加密后的长度(是8byte的倍数)
-# TEA加密算法,CBC模式
-# 密文格式:PadLen(1byte)+Padding(var,0-7byte)+Salt(2byte)+Body(var byte)+Zero(7byte)
-def oi_symmetry_encrypt2_len(nInBufLen: int) -> int:
-    # nPadSaltBodyZeroLen  # PadLen(1byte)+Salt+Body+Zero的长度
-    # 根据Body长度计算PadLen,最小必需长度必需为8byte的整数倍
-    nPadSaltBodyZeroLen = nInBufLen  # /*Body长度*/
-    nPadSaltBodyZeroLen += 1 + SALT_LEN + ZERO_LEN  # PadLen(1byte)+Salt(2byte)+Zero(7byte)
-    nPadlen = nPadSaltBodyZeroLen % 8
-    if nPadlen:  # len=nSaltBodyZeroLen%8
-        # 模8余0需补0,余1补7,余2补6,...,余7补1
-        nPadlen = 8 - nPadlen
-    return nPadSaltBodyZeroLen + nPadlen
-# pKey为16byte
-# 输入:pInBuf为需加密的明文部分(Body),nInBufLen为pInBuf长度
-# 输出:pOutBuf为密文格式,pOutBufLen为pOutBuf的长度是8byte的倍数
-# TEA加密算法,CBC模式
-# 密文格式:PadLen(1byte)+Padding(var,0-7byte)+Salt(2byte)+Body(var byte)+Zero(7byte)
-def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: bytearray, pOutBufLen: Size_t) -> None:
-    # /*PadLen(1byte)+Salt+Body+Zero的长度*/
-    # 根据Body长度计算PadLen,最小必需长度必需为8byte的整数倍
-    nPadSaltBodyZeroLen = nInBufLen  # Body长度
-    nPadSaltBodyZeroLen = nPadSaltBodyZeroLen + 1 + SALT_LEN + ZERO_LEN  # PadLen(1byte)+Salt(2byte)+Zero(7byte)
-    nPadlen = nPadSaltBodyZeroLen % 8
-    if nPadlen:  # len=nSaltBodyZeroLen%8
-        # 模8余0需补0,余1补7,余2补6,...,余7补1
-        nPadlen = 8 - nPadlen
-
-    # srand( (unsigned)time( NULL ) ); 初始化随机数
-    # 加密第一块数据(8byte),取前面10byte
-    src_buf = bytearray([0] * 8)
-    src_buf[0] = (random.randint(0, 255) & 0xf8) | nPadlen  # 最低三位存PadLen,清零
-    src_i = 1  # src_i指向src_buf下一个位置
-
-    while nPadlen:
-        src_buf[src_i] = random.randint(0, 255)  # Padding
-        src_i += 1
-        nPadlen -= 1
-
-    # come here, src_i must <= 8
-
-    iv_plain = bytearray()
-    for i in range(8):
-        iv_plain.append(0)
-
-    iv_crypt = bytearray(iv_plain)  # make zero iv
-
-    pOutBufLen.value = 0  # init OutBufLen
-
-    i = 1
-    while i <= SALT_LEN:  # Salt(2byte)
-        if src_i < 8:
-            src_buf[src_i] = random.randint(0, 255)
-            src_i += 1
-            i += 1  # i inc in here
-        if src_i == 8:
-            # src_i==8
-
-            for j in range(8):  # 加密前异或前8个byte的密文(iv_crypt指向的)
-                src_buf[j] ^= iv_crypt[j]
-
-            # pOutBuffer、pInBuffer均为8byte, pKey为16byte
-            # 加密
-            temp_pOutBuf = bytearray()
-            TeaEncryptECB(src_buf, pKey, temp_pOutBuf)
-
-            for j in range(8):  # 加密后异或前8个byte的明文(iv_plain指向的)
-                temp_pOutBuf[j] ^= iv_plain[j]
-
-            # 保存当前的iv_plain
-            for j in range(8):
-                iv_plain[j] = src_buf[j]
-
-            # 更新iv_crypt
-            src_i = 0
-            iv_crypt = bytearray(temp_pOutBuf)
-            pOutBufLen.value += 8
-            pOutBuf += temp_pOutBuf
-
-    # src_i指向src_buf下一个位置
-    pInBufIndex = 0
-    while nInBufLen:
-        if src_i < 8:
-            src_buf[src_i] = pInBuf[pInBufIndex]
-            pInBufIndex += 1
-            src_i += 1
-            nInBufLen -= 1
-        if src_i == 8:
-            # src_i==8
-            for j in range(8):  # 加密前异或前8个byte的密文(iv_crypt指向的)
-                src_buf[j] ^= iv_crypt[j]
-            # pOutBuffer、pInBuffer均为8byte, pKey为16byte
-            temp_pOutBuf = bytearray()
-            TeaEncryptECB(src_buf, pKey, temp_pOutBuf)
-
-            for j in range(8):  # 加密后异或前8个byte的明文(iv_plain指向的)
-                temp_pOutBuf[j] ^= iv_plain[j]
-
-            # 保存当前的iv_plain
-            for j in range(8):
-                iv_plain[j] = src_buf[j]
-
-            src_i = 0
-            iv_crypt = bytearray(temp_pOutBuf)
-            pOutBufLen.value += 8
-            pOutBuf += temp_pOutBuf
-
-    # src_i指向src_buf下一个位置
-    i = 1
-    while i <= ZERO_LEN:
-        if src_i < 8:
-            src_buf[src_i] = 0
-            src_i += 1
-            i += 1  # i inc in here
-        if src_i == 8:
-            # src_i==8
-
-            for j in range(8):  # 加密前异或前8个byte的密文(iv_crypt指向的)
-                src_buf[j] ^= iv_crypt[j]
-
-            # pOutBuffer、pInBuffer均为8byte, pKey为16byte
-            temp_pOutBuf = bytearray()
-            TeaEncryptECB(src_buf, pKey, temp_pOutBuf)
-
-            for j in range(8):  # 加密后异或前8个byte的明文(iv_plain指向的)
-                temp_pOutBuf[j] ^= iv_plain[j]
-
-            # 保存当前的iv_plain
-            for j in range(8):
-                iv_plain[j] = src_buf[j]
-
-            src_i = 0
-            iv_crypt = temp_pOutBuf
-            pOutBufLen.value += 8
-            pOutBuf += temp_pOutBuf
-# pKey为16byte
-# 输入: pInBuf为密文格式, nInBufLen为pInBuf的长度是8byte的倍数;
-# *pOutBufLen为接收缓冲区的长度
-# 特别注意 * pOutBufLen应预置接收缓冲区的长度!
-# 输出: pOutBuf为明文(Body), pOutBufLen为pOutBuf的长度, 至少应预留nInBufLen - 10;
-# 返回值: 如果格式正确返回true;
-# TEA解密算法, CBC模式
-# 密文格式: PadLen(1byte)+Padding(var, 0 - 7byte)+Salt(2byte)+Body(varbyte)+Zero(7byte)
-def oi_symmetry_decrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: bytearray, pOutBufLen: Size_t) -> bool:
-    dest_buf = bytearray()
-    zero_buf = bytearray()
-
-    # const char * pInBufBoundary;
-    nBufPos = 0
-
-    if (nInBufLen % 8) or (nInBufLen < 16):
-        return False
-
-    TeaDecryptECB(pInBuf, pKey, dest_buf)
-
-    nPadLen = dest_buf[0] & 0x7  # 只要最低三位
-
-    # 密文格式: PadLen(1byte)+Padding(var, 0-7byte)+Salt(2byte)+Body(var byte)+Zero(7byte)
-    i = nInBufLen - 1  # PadLen(1byte)
-    i = i - nPadLen - SALT_LEN - ZERO_LEN  # 明文长度
-
-    if (pOutBufLen.value < i) or (i < 0):
-        return False
-
-    pOutBufLen.value = i
-
-    # pInBufBoundary = pInBuf + nInBufLen; 输入缓冲区的边界，下面不能pInBuf >= pInBufBoundary
-
-    for i in range(8):
-        zero_buf.append(0)
-
-    iv_pre_crypt = bytearray(zero_buf)
-    iv_cur_crypt = bytearray(pInBuf)  # init iv
-
-    pInBuf = pInBuf[8:]
-    nBufPos += 8
-    dest_i = 1  # dest_i指向dest_buf下一个位置
-
-    # 把Padding滤掉
-    dest_i += nPadLen
-
-    # dest_i must <= 8
-
-    # 把Salt滤掉
-    i = 1
-    while i <= SALT_LEN:
-        if dest_i < 8:
-            dest_i += 1
-            i += 1
-        elif dest_i == 8:
-            # 解开一个新的加密块
-            # 改变前一个加密块的指针
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            # 异或前一块明文(在dest_buf[]中)
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-
-            # dest_i == 8
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-
-            # 在取出的时候才异或前一块密文(iv_pre_crypt)
-
-            pInBuf = pInBuf[8:]
-            nBufPos += 8
-            dest_i = 0  # dest_i指向dest_buf下一个位置
-
-    # 还原明文
-    nPlainLen = pOutBufLen.value
-    while nPlainLen:
-        if dest_i < 8:
-            pOutBuf.append(dest_buf[dest_i] ^ iv_pre_crypt[dest_i])
-            dest_i += 1
-            nPlainLen -= 1
-        elif dest_i == 8:
-            # dest_i == 8
-            # 改变前一个加密块的指针
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            # 解开一个新的加密块
-            # 异或前一块明文(在dest_buf[]中)
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-            # 在取出的时候才异或前一块密文(iv_pre_crypt)
-            pInBuf = pInBuf[8:]
-            nBufPos += 8
-            dest_i = 0  # dest_i指向dest_buf下一个位置
-
-    # 校验Zero
-    i = 1
-    while i <= ZERO_LEN:
-        if dest_i < 8:
-            if dest_buf[dest_i] ^ iv_pre_crypt[dest_i]:
-                return False
-            dest_i += 1
-            i += 1
-        elif dest_i == 8:
-            # 改变前一个加密块的指针
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            # 解开一个新的加密块
-            # 异或前一块明文(在dest_buf[]中)
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-
-            # 在取出的时候才异或前一块密文(iv_pre_crypt)
-            pInBuf += 8
-            nBufPos += 8
-            dest_i = 0  # dest_i指向dest_buf下一个位置
-    return True
-def tc_tea_encrypt(keys: bytes, message: bytes) -> bytes:
-    data = bytearray()
-    encrypt(keys, message, len(message), data)
-    return bytes(data)
-def tc_tea_decrypt(keys: bytes, message: bytes) -> bytes:
-    data = bytearray()
-    if decrypt(keys, message, len(message), data):
-        return bytes(data)
+def clear_cache(cnlid: str = None, livepid: str = None, defn: str = None):
+    """清空缓存（可选）"""
+    global cache
+    if cnlid is None:
+        cache = {}
     else:
-        raise Exception('解密失败')
-def CalcSignature(decArray):
-    signature = 0
-    for byte in decArray:
-        signature = (0x83 * signature + byte)
-    return signature& 0x7FFFFFFF
-def RandomHexStr(length):
-    return ''.join(random.choice('0123456789ABCDEF') for _ in range(length))
-def XOR_Array(byteArray):
-    retArray = bytearray(byteArray)
-    for i in range(len(retArray)):
-        retArray[i] ^= XOR_KEY[i & 0xF]
-    return retArray
-def custom_encode(text):
-    encoded_data = base64.b64encode(text)
-    encoded_str = encoded_data.decode('utf-8')
-    translated_str = encoded_str.translate(str.maketrans(STANDARD_ALPHABET, CUSTOM_ALPHABET))
-    return translated_str
-def custom_decode(text):
-    text =text if len(text) % 4 == 0 else text + '=' * (4 - len(text) % 4)
-    data = base64.b64decode(text.translate(str.maketrans(CUSTOM_ALPHABET, STANDARD_ALPHABET)))
-    return data
-def create_str_data(value):
-    #如果是数字
-    if value is None:
-        value = ""
-    if isinstance(value, int):
-        value = str(value)
-    return {"length": len(value), "value": value.encode('utf-8')}
+        prefix = f"live:{cnlid}"
+        keys_to_delete = [k for k in cache if k.startswith(prefix)]
+        for k in keys_to_delete:
+            del cache[k]
 
+# ==================== 原有加解密代码 ====================
+# ... 保持你原有的所有加解密函数不变 ...
+# (int16_str_struct, ckey_struct, DELTA, ROUNDS, TEA_CKEY, XOR_KEY,
+#  STANDARD_ALPHABET, CUSTOM_ALPHABET, TeaEncryptECB, TeaDecryptECB,
+#  oi_symmetry_encrypt2, oi_symmetry_decrypt2, tc_tea_encrypt,
+#  tc_tea_decrypt, CalcSignature, RandomHexStr, XOR_Array,
+#  custom_encode, custom_decode, create_str_data, ckey42 等)
 
-def ckey42(Platform, Timestamp, Sdtfrom = "fcgo",vid="600002264", guid=None, appVer="V8.22.1035.3031"):
+# 为了完整性，这里列出你需要保留的函数（从你的原代码复制）：
+# - int16_str_struct, int32_str_struct, ckey_struct, ckey42_struct
+# - DELTA, ROUNDS, LOG_ROUNDS, SALT_LEN, ZERO_LEN
+# - TEA_CKEY, XOR_KEY, STANDARD_ALPHABET, CUSTOM_ALPHABET
+# - Size_t 类
+# - encrypt(), decrypt()
+# - TeaEncryptECB(), TeaDecryptECB()
+# - oi_symmetry_encrypt2_len(), oi_symmetry_encrypt2(), oi_symmetry_decrypt2()
+# - tc_tea_encrypt(), tc_tea_decrypt()
+# - CalcSignature(), RandomHexStr(), XOR_Array()
+# - custom_encode(), custom_decode()
+# - create_str_data()
+# - ckey42()
+
+# ==================== 优化后的 ckey42（复用部分随机值） ====================
+# 缓存一些可复用的值，减少随机数生成开销
+_reusable_randflag = None
+_reusable_randflag_time = 0
+
+def get_randflag():
+    """复用 randFlag，每80秒刷新一次"""
+    global _reusable_randflag, _reusable_randflag_time
+    now = time.time()
+    if _reusable_randflag is None or now - _reusable_randflag_time > CACHE_TTL:
+        _reusable_randflag = base64.b64encode(os.urandom(18)).decode()
+        _reusable_randflag_time = now
+    return _reusable_randflag
+
+def ckey42_optimized(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appVer="V8.22.1035.3031"):
+    """优化版 ckey42，复用部分随机值"""
     header = b'\x00\x00\x00\x42\x00\x00\x00\x04\x00\x00\x04\xd2'
+    
+    # 使用复用的 randFlag
+    randflag = get_randflag()
+    
     data = {
         "header": header,
         "Platform": int(Platform).to_bytes(4, 'big'),
         "signature": b'\x00\x00\x00\x00',
         "Timestamp": Timestamp.to_bytes(4, 'big'),
         "Sdtfrom": create_str_data(Sdtfrom),
-        "randFlag": create_str_data(
-            base64.b64encode(os.urandom(18)).decode()
-        ),
+        "randFlag": create_str_data(randflag),
         "appVer": create_str_data(appVer),
         "vid": create_str_data(vid),
         "guid": create_str_data(guid),
@@ -466,26 +123,60 @@ def ckey42(Platform, Timestamp, Sdtfrom = "fcgo",vid="600002264", guid=None, app
     BufferHead = [int(BufferLenHex[i:i+2], 16) for i in range(0, len(BufferLenHex), 2)]
     Buffer = BufferHead + list(Buffer)
     encrypt_data = tc_tea_encrypt(TEA_CKEY, bytes(Buffer))
-    encrypt_data=bytearray(encrypt_data)
-    CheckSum=CalcSignature(Buffer)
+    encrypt_data = bytearray(encrypt_data)
+    CheckSum = CalcSignature(Buffer)
     CheckSumBytes = struct.pack('>I', CheckSum)
     encrypt_data.extend(CheckSumBytes)
     result = XOR_Array(encrypt_data)
-    return "--01"+custom_encode(result).replace('=','')
-app=FastAPI()
+    return "--01" + custom_encode(result).replace('=', '')
+
+# ==================== FastAPI 应用（带缓存） ====================
+app = FastAPI()
+
 @app.get("/ysp")
-def ysp(cnlid: str, livepid: str, defn: str = "auto"):
+def ysp(cnlid: str, livepid: str, defn: str = "auto", playseek: str = None):
+    """
+    获取央视频播放地址
+    - cnlid: 频道ID
+    - livepid: 直播ID
+    - defn: 清晰度 (auto/fhd/4k等)
+    - playseek: 回看时间 (可选，格式: YYYYMMDDHHMMSS-YYYYMMDDHHMMSS)
+    """
     try:
-        url = "https://liveinfo.ysp.cctv.cn"
-        params ={
-            "atime":"120",
-            "livepid":  livepid,
-            "cnlid":  cnlid,
+        # 1. 先查缓存
+        cached_url = get_cached_url(cnlid, livepid, defn, playseek)
+        if cached_url:
+            # 直播模式直接返回m3u8内容，点播模式跳转
+            if playseek:
+                return RedirectResponse(url=cached_url)
+            else:
+                # 直播模式：获取并处理m3u8内容
+                m3u8_content = fetch_m3u8_content(cached_url, cached=True)
+                if m3u8_content:
+                    from fastapi.responses import Response
+                    return Response(content=m3u8_content, media_type="application/vnd.apple.mpegurl")
+                # 缓存失效，继续请求
+        
+        # 2. 缓存未命中，生成新的请求
+        url = "https://liveinfo.ysp.cctv.cn" if not playseek else "https://bkliveinfo.ysp.cctv.cn"
+        
+        # 生成 GUID
+        guid = RandomHexStr(32)
+        timestamp = int(time.time())
+        sdtfrom = 'dcgh' if not playseek else 'v3021'
+        
+        # 生成 cKey
+        ckey = ckey42_optimized(4330403, timestamp, sdtfrom, cnlid, guid, "V8.22.1035.3031")
+        
+        params = {
+            "atime": "120",
+            "livepid": livepid,
+            "cnlid": cnlid,
             "appVer": "V8.22.1035.3031",
             "app_version": "300090",
             "caplv": "1",
             "cmd": "2",
-            "defn":  defn,
+            "defn": defn if defn != 'auto' else 'fhd',
             "device": "iPhone",
             "encryptVer": "4.2",
             "getpreviewinfo": "0",
@@ -497,8 +188,7 @@ def ysp(cnlid: str, livepid: str, defn: str = "auto"):
             "newnettype": "1",
             "newplatform": "4330403",
             "platform": "4330403",
-            "playbacktime": "0",
-            "sdtfrom": "v3021",
+            "sdtfrom": sdtfrom,
             "spacode": "23",
             "spaudio": "1",
             "spdemuxer": "6",
@@ -514,34 +204,83 @@ def ysp(cnlid: str, livepid: str, defn: str = "auto"):
             "system": "1",
             "sysver": "ios18.2.1",
             "uhd_flag": "4",
+            "cKey": ckey,
+            "guid": guid,
+            "fntick": timestamp,
+            "flowid": f"{uuid.uuid4()}_{4330403}",
         }
+        
+        # 回看模式添加 playbacktime
+        if playseek:
+            parts = playseek.split('-')
+            if len(parts) == 2:
+                start_time = datetime.strptime(parts[0], '%Y%m%d%H%M%S')
+                params["playbacktime"] = int(start_time.timestamp())
+        
         headers = {
             'User-Agent': "qqlive",
             'Connection': "Keep-Alive",
             'Accept-Encoding': "gzip"
         }
-        Platform = params['platform']
-        Timestamp = int(time.time())
-        appVer = params['appVer']
-        Cnlid = params['cnlid']
-        StaGuid = RandomHexStr(32)
-        sdtfrom = 'dcgh'
-        ckey=ckey42(Platform, Timestamp, sdtfrom, Cnlid, StaGuid, appVer)
-        params.update({"cKey":ckey})
-        data = requests.get(url,params=params,headers=headers).json()
-        if defn=="auto":
-            formats=data['formats']
-            return  JSONResponse(content={"formats": formats})
-        url=data['playurl']
-        return RedirectResponse(url=url)
+        
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        data = response.json()
+        
+        # 处理响应
+        if defn == "auto" and not playseek:
+            formats = data.get('formats', [])
+            return JSONResponse(content={"formats": formats})
+        
+        playurl = data.get('playurl')
+        if not playurl:
+            return JSONResponse(content={"error": "获取播放地址失败", "detail": data}, status_code=404)
+        
+        # 缓存结果
+        set_cached_url(cnlid, livepid, defn, playurl, playseek)
+        
+        # 返回结果
+        if playseek:
+            return RedirectResponse(url=playurl)
+        else:
+            # 直播模式：获取并处理 m3u8
+            m3u8_content = fetch_m3u8_content(playurl, cached=False)
+            if m3u8_content:
+                from fastapi.responses import Response
+                return Response(content=m3u8_content, media_type="application/vnd.apple.mpegurl")
+            return RedirectResponse(url=playurl)
+            
     except Exception as e:
-        return {"error": str(e)}
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+def fetch_m3u8_content(playurl: str, cached: bool = False) -> str | None:
+    """获取 M3U8 内容并补全 TS 路径"""
+    try:
+        response = requests.get(playurl, timeout=10, headers={'User-Agent': 'qqlive'})
+        if response.status_code != 200:
+            return None
+        
+        m3u8_content = response.text
+        
+        # 补全 TS 路径（与 PHP 版一致）
+        if not m3u8_content.startswith('#EXTM3U'):
+            return None
+        
+        base_url = playurl[:playurl.rfind('/') + 1]
+        
+        # 处理 TS 文件路径
+        lines = m3u8_content.split('\n')
+        processed_lines = []
+        for line in lines:
+            if line and not line.startswith('#') and not line.startswith('http'):
+                processed_lines.append(base_url + line)
+            else:
+                processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+    except Exception:
+        return None
+
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=9006)
-
-    
-    
-    
-
-    
