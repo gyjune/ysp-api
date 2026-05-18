@@ -6,6 +6,7 @@ import struct
 import time
 import uuid
 import socket
+import re
 from datetime import datetime, timedelta
 import requests
 from construct import Struct, Int16ub, Int32ub, Bytes, this
@@ -20,58 +21,18 @@ cache = {}
 def get_cache_key(cnlid: str, livepid: str, defn: str) -> str:
     return f"{cnlid}:{livepid}:{defn}"
 
-def get_cached_url(cnlid: str, livepid: str, defn: str):
+def get_cached_m3u8(cnlid: str, livepid: str, defn: str):
     key = get_cache_key(cnlid, livepid, defn)
     if key in cache:
-        cached_time, url = cache[key]
+        cached_time, m3u8 = cache[key]
         if datetime.now() - cached_time < timedelta(seconds=CACHE_TTL):
-            return url
+            return m3u8
         del cache[key]
     return None
 
-def set_cached_url(cnlid: str, livepid: str, defn: str, url: str):
+def set_cached_m3u8(cnlid: str, livepid: str, defn: str, m3u8: str):
     key = get_cache_key(cnlid, livepid, defn)
-    cache[key] = (datetime.now(), url)
-
-# ============== 复用值（关键优化）==============
-# 固定 ck_guard_time（与 PHP 版一致）
-CK_GUARD_TIME = "1907CEBB43DD91205C0AA24CAA050DCE0EA64FEA1AB8F3D20C45B08B35952308456EE297396350DAA26DDC14"
-
-# 复用 GUID
-_guid_cache = None
-_guid_cache_time = 0
-
-def get_guid():
-    global _guid_cache, _guid_cache_time
-    now = time.time()
-    if _guid_cache is None or now - _guid_cache_time > CACHE_TTL:
-        _guid_cache = ''.join(random.choice('0123456789ABCDEF') for _ in range(32))
-        _guid_cache_time = now
-    return _guid_cache
-
-# 复用 randFlag
-_reusable_randflag = None
-_reusable_randflag_time = 0
-
-def get_randflag():
-    global _reusable_randflag, _reusable_randflag_time
-    now = time.time()
-    if _reusable_randflag is None or now - _reusable_randflag_time > CACHE_TTL:
-        _reusable_randflag = base64.b64encode(os.urandom(18)).decode()
-        _reusable_randflag_time = now
-    return _reusable_randflag
-
-# 复用 uuid4
-_uuid4_cache = None
-_uuid4_cache_time = 0
-
-def get_uuid4():
-    global _uuid4_cache, _uuid4_cache_time
-    now = time.time()
-    if _uuid4_cache is None or now - _uuid4_cache_time > CACHE_TTL:
-        _uuid4_cache = str(uuid.uuid4())
-        _uuid4_cache_time = now
-    return _uuid4_cache
+    cache[key] = (datetime.now(), m3u8)
 
 # ============== 构造体定义 ==============
 int16_str_struct = Struct(
@@ -118,6 +79,28 @@ class Size_t:
     def __init__(self, value):
         self.value = value
 
+# ============== 复用值（减少随机数开销）==============
+_guid_cache = None
+_guid_cache_time = 0
+_reusable_randflag = None
+_reusable_randflag_time = 0
+
+def get_guid():
+    global _guid_cache, _guid_cache_time
+    now = time.time()
+    if _guid_cache is None or now - _guid_cache_time > CACHE_TTL:
+        _guid_cache = ''.join(random.choice('0123456789ABCDEF') for _ in range(32))
+        _guid_cache_time = now
+    return _guid_cache
+
+def get_randflag():
+    global _reusable_randflag, _reusable_randflag_time
+    now = time.time()
+    if _reusable_randflag is None or now - _reusable_randflag_time > CACHE_TTL:
+        _reusable_randflag = base64.b64encode(os.urandom(18)).decode()
+        _reusable_randflag_time = now
+    return _reusable_randflag
+
 # ============== TEA加密算法 ==============
 def TeaEncryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
     k = list(struct.unpack("!IIII", pKey))
@@ -135,36 +118,15 @@ def TeaEncryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
     pOutBuf.clear()
     pOutBuf.extend(struct.pack("!II", y, z))
 
-def TeaDecryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
-    k = list(struct.unpack("!IIII", pKey))
-    y, z = struct.unpack("!II", pInBuf[:8])
-
-    sum_val = ctypes.c_uint32(DELTA << LOG_ROUNDS).value
-    for _ in range(ROUNDS):
-        z -= ((y << 4) + k[2]) ^ (y + sum_val) ^ ((y >> 5) + k[3])
-        z = ctypes.c_uint32(z).value
-        y -= ((z << 4) + k[0]) ^ (z + sum_val) ^ ((z >> 5) + k[1])
-        y = ctypes.c_uint32(y).value
-        sum_val -= DELTA
-
-    pOutBuf.clear()
-    pOutBuf.extend(struct.pack("!II", y, z))
-
-def encrypt(key: bytes, sIn: bytes, iLength: int, buffer: bytearray) -> None:
-    outlen = Size_t(oi_symmetry_encrypt2_len(iLength))
-    oi_symmetry_encrypt2(sIn, iLength, key, buffer, outlen)
-    while len(buffer) > outlen.value:
-        buffer.pop()
-
 def oi_symmetry_encrypt2_len(nInBufLen: int) -> int:
-    nPadSaltBodyZeroLen = nInBufLen + 1 + 2 + 7
+    nPadSaltBodyZeroLen = nInBufLen + 1 + SALT_LEN + ZERO_LEN
     nPadlen = nPadSaltBodyZeroLen % 8
     if nPadlen:
         nPadlen = 8 - nPadlen
     return nPadSaltBodyZeroLen + nPadlen
 
 def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: bytearray, pOutBufLen: Size_t) -> None:
-    nPadSaltBodyZeroLen = nInBufLen + 1 + 2 + 7
+    nPadSaltBodyZeroLen = nInBufLen + 1 + SALT_LEN + ZERO_LEN
     nPadlen = nPadSaltBodyZeroLen % 8
     if nPadlen:
         nPadlen = 8 - nPadlen
@@ -183,7 +145,7 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
     pOutBufLen.value = 0
 
     i = 1
-    while i <= 2:
+    while i <= SALT_LEN:
         if src_i < 8:
             src_buf[src_i] = random.randint(0, 255)
             src_i += 1
@@ -228,7 +190,7 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
             pOutBuf.extend(temp_pOutBuf)
 
     i = 1
-    while i <= 7:
+    while i <= ZERO_LEN:
         if src_i < 8:
             src_buf[src_i] = 0
             src_i += 1
@@ -251,15 +213,18 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
 
 def tc_tea_encrypt(keys: bytes, message: bytes) -> bytes:
     data = bytearray()
-    encrypt(keys, message, len(message), data)
+    outlen = Size_t(0)
+    oi_symmetry_encrypt2(message, len(message), keys, data, outlen)
     return bytes(data)
 
-# ============== CKEY生成函数 ==============
 def CalcSignature(decArray):
     signature = 0
     for byte in decArray:
         signature = (0x83 * signature + byte)
     return signature & 0x7FFFFFFF
+
+def RandomHexStr(length):
+    return ''.join(random.choice('0123456789ABCDEF') for _ in range(length))
 
 def XOR_Array(byteArray):
     retArray = bytearray(byteArray)
@@ -293,14 +258,14 @@ def ckey42(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appV
         "isDlna": 1,
         "uid": create_str_data("2622783A"),
         "bundleID": create_str_data("nil"),
-        "uuid4": create_str_data(get_uuid4()),  # 复用 uuid4
+        "uuid4": create_str_data(str(uuid.uuid4())),
         "bundleID1": create_str_data("nil"),
         "ckeyVersion": create_str_data("v0.1.000"),
         "packageName": create_str_data("com.cctv.yangshipin.app.iphone"),
         "platform_str": create_str_data(str(Platform)),
         "ex_json_bus": create_str_data("ex_json_bus"),
         "ex_json_vs": create_str_data("ex_json_vs"),
-        "ck_guard_time": create_str_data(CK_GUARD_TIME),  # 固定值
+        "ck_guard_time": create_str_data(RandomHexStr(66)),
     }
     Buffer = ckey_struct.build(data)
     BufferLenHex = hex(len(Buffer))[2:].zfill(4)
@@ -309,11 +274,12 @@ def ckey42(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appV
     encrypt_data = tc_tea_encrypt(TEA_CKEY, bytes(Buffer))
     encrypt_data = bytearray(encrypt_data)
     CheckSum = CalcSignature(Buffer)
-    encrypt_data.extend(struct.pack('>I', CheckSum))
+    CheckSumBytes = struct.pack('>I', CheckSum)
+    encrypt_data.extend(CheckSumBytes)
     result = XOR_Array(encrypt_data)
     return "--01" + custom_encode(result).replace('=', '')
 
-# ============== 完整频道列表 ==============
+# ============== 频道列表生成 ==============
 def generate_channel_list(host):
     if ':' in host:
         server_ip = host.split(':')[0]
@@ -346,6 +312,11 @@ CCTV17,http://{server_address}/ysp?cnlid=2027249401&livepid=600001810&defn=fhd
 CCTV4K,http://{server_address}/ysp?cnlid=2029810301&livepid=600002264&defn=4k
 CCTV8K,http://{server_address}/ysp?cnlid=2026774101&livepid=600156816&defn=8k
 CGTN,http://{server_address}/ysp?cnlid=2024181701&livepid=600014550&defn=fhd
+CGTN法语,http://{server_address}/ysp?cnlid=2024181801&livepid=600084704&defn=fhd
+CGTN俄语,http://{server_address}/ysp?cnlid=2024181901&livepid=600084758&defn=fhd
+CGTN阿拉伯语,http://{server_address}/ysp?cnlid=2024182001&livepid=600084782&defn=fhd
+CGTN西班牙语,http://{server_address}/ysp?cnlid=2024182101&livepid=600084744&defn=fhd
+CGTN纪录,http://{server_address}/ysp?cnlid=2024182301&livepid=600084781&defn=fhd
 央视VIP,#genre#
 CCTV风云剧场,http://{server_address}/ysp?cnlid=2025637103&livepid=600099658&defn=fhd
 CCTV第一剧场,http://{server_address}/ysp?cnlid=2026874203&livepid=600099655&defn=fhd
@@ -355,6 +326,11 @@ CCTV风云音乐,http://{server_address}/ysp?cnlid=2026874503&livepid=600099660&
 CCTV兵器科技,http://{server_address}/ysp?cnlid=2026874603&livepid=600099649&defn=fhd
 CCTV风云足球,http://{server_address}/ysp?cnlid=2026966203&livepid=600099636&defn=fhd
 CCTV高尔夫网球,http://{server_address}/ysp?cnlid=2026874703&livepid=600099659&defn=fhd
+CCTV女性时尚,http://{server_address}/ysp?cnlid=2026874803&livepid=600099650&defn=fhd
+CCTV文化精品,http://{server_address}/ysp?cnlid=2026874903&livepid=600099653&defn=fhd
+CCTV央视台球,http://{server_address}/ysp?cnlid=2026875003&livepid=600099652&defn=fhd
+CCTV电视指南,http://{server_address}/ysp?cnlid=2026875103&livepid=600099656&defn=fhd
+CCTV卫生健康,http://{server_address}/ysp?cnlid=2025637003&livepid=600099651&defn=fhd
 卫视,#genre#
 北京卫视,http://{server_address}/ysp?cnlid=2024052703&livepid=600002309&defn=fhd
 东方卫视,http://{server_address}/ysp?cnlid=2024054503&livepid=600002483&defn=fhd
@@ -388,7 +364,9 @@ CCTV高尔夫网球,http://{server_address}/ysp?cnlid=2026874703&livepid=6000996
 西藏卫视,http://{server_address}/ysp?cnlid=2025558003&livepid=600190403&defn=fhd
 新疆卫视,http://{server_address}/ysp?cnlid=2019927403&livepid=600152138&defn=fhd
 甘肃卫视,http://{server_address}/ysp?cnlid=2025561703&livepid=600190408&defn=fhd
-中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=fhd"""
+中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=fhd
+兵团卫视,http://{server_address}/ysp?cnlid=2025990501&livepid=600193252&defn=fhd
+国学频道,http://{server_address}/ysp?cnlid=2029360403&livepid=600213139&defn=fhd"""
 
 # ============== FastAPI应用 ==============
 app = FastAPI()
@@ -406,13 +384,14 @@ async def root(request: Request):
 
 @app.get("/ysp")
 def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
+    """获取直播流 - 直接返回 M3U8 内容（和 PHP 版一样）"""
     try:
-        # 查缓存
-        cached_url = get_cached_url(cnlid, livepid, defn)
-        if cached_url:
-            return RedirectResponse(url=cached_url)
+        # 1. 查缓存（缓存的是处理后的 M3U8 内容）
+        cached_m3u8 = get_cached_m3u8(cnlid, livepid, defn)
+        if cached_m3u8:
+            return Response(content=cached_m3u8, media_type="application/vnd.apple.mpegurl")
 
-        # 请求新地址
+        # 2. 请求播放地址
         url = "https://liveinfo.ysp.cctv.cn"
         params = {
             "atime": "120",
@@ -466,10 +445,38 @@ def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
 
         play_url = data.get('playurl')
         if not play_url:
-            return JSONResponse(content={"error": "获取失败", "detail": data}, status_code=404)
+            return JSONResponse(content={"error": "获取播放地址失败", "detail": data}, status_code=404)
 
-        set_cached_url(cnlid, livepid, defn, play_url)
-        return RedirectResponse(url=play_url)
+        # 关键优化：替换 CDN 为更快的节点
+        play_url = play_url.replace('alicdn.ysp.cctv.cn', 'cdn.ysp.cctv.cn')
+        play_url = play_url.replace('hs-playback.ysp.cctv.cn', 'tlivecloud-playback-cdn.ysp.cctv.cn')
+
+        # 3. 获取 M3U8 内容
+        m3u8_resp = requests.get(play_url, timeout=10, headers={'User-Agent': 'qqlive'})
+        if m3u8_resp.status_code != 200:
+            # 如果获取 M3U8 失败，回退到重定向
+            return RedirectResponse(url=play_url)
+
+        m3u8_content = m3u8_resp.text
+        
+        # 4. 补全 TS 路径（关键！和 PHP 版完全一样）
+        base_url = play_url[:play_url.rfind('/') + 1]
+        lines = m3u8_content.split('\n')
+        processed_lines = []
+        for line in lines:
+            line = line.rstrip('\r')
+            # 如果是 TS 文件路径（不以 # 开头且不是完整 URL），补全路径
+            if line and not line.startswith('#') and not line.startswith('http'):
+                processed_lines.append(base_url + line)
+            else:
+                processed_lines.append(line)
+        
+        final_m3u8 = '\n'.join(processed_lines)
+        
+        # 5. 缓存 M3U8 内容（80秒，和 PHP 版一致）
+        set_cached_m3u8(cnlid, livepid, defn, final_m3u8)
+
+        return Response(content=final_m3u8, media_type="application/vnd.apple.mpegurl")
 
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
