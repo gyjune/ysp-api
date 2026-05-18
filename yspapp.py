@@ -33,6 +33,46 @@ def set_cached_url(cnlid: str, livepid: str, defn: str, url: str):
     key = get_cache_key(cnlid, livepid, defn)
     cache[key] = (datetime.now(), url)
 
+# ============== 复用值（关键优化）==============
+# 固定 ck_guard_time（与 PHP 版一致）
+CK_GUARD_TIME = "1907CEBB43DD91205C0AA24CAA050DCE0EA64FEA1AB8F3D20C45B08B35952308456EE297396350DAA26DDC14"
+
+# 复用 GUID
+_guid_cache = None
+_guid_cache_time = 0
+
+def get_guid():
+    global _guid_cache, _guid_cache_time
+    now = time.time()
+    if _guid_cache is None or now - _guid_cache_time > CACHE_TTL:
+        _guid_cache = ''.join(random.choice('0123456789ABCDEF') for _ in range(32))
+        _guid_cache_time = now
+    return _guid_cache
+
+# 复用 randFlag
+_reusable_randflag = None
+_reusable_randflag_time = 0
+
+def get_randflag():
+    global _reusable_randflag, _reusable_randflag_time
+    now = time.time()
+    if _reusable_randflag is None or now - _reusable_randflag_time > CACHE_TTL:
+        _reusable_randflag = base64.b64encode(os.urandom(18)).decode()
+        _reusable_randflag_time = now
+    return _reusable_randflag
+
+# 复用 uuid4
+_uuid4_cache = None
+_uuid4_cache_time = 0
+
+def get_uuid4():
+    global _uuid4_cache, _uuid4_cache_time
+    now = time.time()
+    if _uuid4_cache is None or now - _uuid4_cache_time > CACHE_TTL:
+        _uuid4_cache = str(uuid.uuid4())
+        _uuid4_cache_time = now
+    return _uuid4_cache
+
 # ============== 构造体定义 ==============
 int16_str_struct = Struct(
     "length" / Int16ub,
@@ -78,18 +118,6 @@ class Size_t:
     def __init__(self, value):
         self.value = value
 
-# ============== 复用 randFlag ==============
-_reusable_randflag = None
-_reusable_randflag_time = 0
-
-def get_randflag():
-    global _reusable_randflag, _reusable_randflag_time
-    now = time.time()
-    if _reusable_randflag is None or now - _reusable_randflag_time > CACHE_TTL:
-        _reusable_randflag = base64.b64encode(os.urandom(18)).decode()
-        _reusable_randflag_time = now
-    return _reusable_randflag
-
 # ============== TEA加密算法 ==============
 def TeaEncryptECB(pInBuf: bytes, pKey: bytes, pOutBuf: bytearray) -> None:
     k = list(struct.unpack("!IIII", pKey))
@@ -128,23 +156,15 @@ def encrypt(key: bytes, sIn: bytes, iLength: int, buffer: bytearray) -> None:
     while len(buffer) > outlen.value:
         buffer.pop()
 
-def decrypt(key: bytes, sIn: bytes, iLength: int, buffer: bytearray) -> bool:
-    outlen = Size_t(iLength)
-    if not oi_symmetry_decrypt2(sIn, iLength, key, buffer, outlen):
-        return False
-    while len(buffer) > outlen.value:
-        buffer.pop()
-    return True
-
 def oi_symmetry_encrypt2_len(nInBufLen: int) -> int:
-    nPadSaltBodyZeroLen = nInBufLen + 1 + SALT_LEN + ZERO_LEN
+    nPadSaltBodyZeroLen = nInBufLen + 1 + 2 + 7
     nPadlen = nPadSaltBodyZeroLen % 8
     if nPadlen:
         nPadlen = 8 - nPadlen
     return nPadSaltBodyZeroLen + nPadlen
 
 def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: bytearray, pOutBufLen: Size_t) -> None:
-    nPadSaltBodyZeroLen = nInBufLen + 1 + SALT_LEN + ZERO_LEN
+    nPadSaltBodyZeroLen = nInBufLen + 1 + 2 + 7
     nPadlen = nPadSaltBodyZeroLen % 8
     if nPadlen:
         nPadlen = 8 - nPadlen
@@ -163,7 +183,7 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
     pOutBufLen.value = 0
 
     i = 1
-    while i <= SALT_LEN:
+    while i <= 2:
         if src_i < 8:
             src_buf[src_i] = random.randint(0, 255)
             src_i += 1
@@ -208,7 +228,7 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
             pOutBuf.extend(temp_pOutBuf)
 
     i = 1
-    while i <= ZERO_LEN:
+    while i <= 7:
         if src_i < 8:
             src_buf[src_i] = 0
             src_i += 1
@@ -229,90 +249,6 @@ def oi_symmetry_encrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: by
             pOutBufLen.value += 8
             pOutBuf.extend(temp_pOutBuf)
 
-def oi_symmetry_decrypt2(pInBuf: bytes, nInBufLen: int, pKey: bytes, pOutBuf: bytearray, pOutBufLen: Size_t) -> bool:
-    if (nInBufLen % 8) or (nInBufLen < 16):
-        return False
-
-    dest_buf = bytearray()
-    TeaDecryptECB(pInBuf, pKey, dest_buf)
-
-    nPadLen = dest_buf[0] & 0x7
-    i = nInBufLen - 1 - nPadLen - SALT_LEN - ZERO_LEN
-
-    if (pOutBufLen.value < i) or (i < 0):
-        return False
-
-    pOutBufLen.value = i
-    zero_buf = bytearray([0] * 8)
-    iv_pre_crypt = bytearray(zero_buf)
-    iv_cur_crypt = bytearray(pInBuf)
-
-    pInBuf = pInBuf[8:]
-    nBufPos = 8
-    dest_i = 1 + nPadLen
-
-    i = 1
-    while i <= SALT_LEN:
-        if dest_i < 8:
-            dest_i += 1
-            i += 1
-        elif dest_i == 8:
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-            pInBuf = pInBuf[8:]
-            nBufPos += 8
-            dest_i = 0
-
-    nPlainLen = pOutBufLen.value
-    while nPlainLen:
-        if dest_i < 8:
-            pOutBuf.append(dest_buf[dest_i] ^ iv_pre_crypt[dest_i])
-            dest_i += 1
-            nPlainLen -= 1
-        elif dest_i == 8:
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-            pInBuf = pInBuf[8:]
-            nBufPos += 8
-            dest_i = 0
-
-    i = 1
-    while i <= ZERO_LEN:
-        if dest_i < 8:
-            if dest_buf[dest_i] ^ iv_pre_crypt[dest_i]:
-                return False
-            dest_i += 1
-            i += 1
-        elif dest_i == 8:
-            iv_pre_crypt = bytearray(iv_cur_crypt)
-            iv_cur_crypt = bytearray(pInBuf)
-
-            for j in range(8):
-                if nBufPos + j >= nInBufLen:
-                    return False
-                dest_buf[j] ^= pInBuf[j]
-
-            TeaDecryptECB(bytes(dest_buf), pKey, dest_buf)
-            pInBuf = pInBuf[8:]
-            nBufPos += 8
-            dest_i = 0
-
-    return True
-
 def tc_tea_encrypt(keys: bytes, message: bytes) -> bytes:
     data = bytearray()
     encrypt(keys, message, len(message), data)
@@ -325,9 +261,6 @@ def CalcSignature(decArray):
         signature = (0x83 * signature + byte)
     return signature & 0x7FFFFFFF
 
-def RandomHexStr(length):
-    return ''.join(random.choice('0123456789ABCDEF') for _ in range(length))
-
 def XOR_Array(byteArray):
     retArray = bytearray(byteArray)
     for i in range(len(retArray)):
@@ -335,10 +268,7 @@ def XOR_Array(byteArray):
     return retArray
 
 def custom_encode(text):
-    encoded_data = base64.b64encode(text)
-    encoded_str = encoded_data.decode('utf-8')
-    translated_str = encoded_str.translate(str.maketrans(STANDARD_ALPHABET, CUSTOM_ALPHABET))
-    return translated_str
+    return base64.b64encode(text).decode().translate(str.maketrans(STANDARD_ALPHABET, CUSTOM_ALPHABET))
 
 def create_str_data(value):
     if value is None:
@@ -363,14 +293,14 @@ def ckey42(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appV
         "isDlna": 1,
         "uid": create_str_data("2622783A"),
         "bundleID": create_str_data("nil"),
-        "uuid4": create_str_data(str(uuid.uuid4())),
+        "uuid4": create_str_data(get_uuid4()),  # 复用 uuid4
         "bundleID1": create_str_data("nil"),
         "ckeyVersion": create_str_data("v0.1.000"),
         "packageName": create_str_data("com.cctv.yangshipin.app.iphone"),
         "platform_str": create_str_data(str(Platform)),
         "ex_json_bus": create_str_data("ex_json_bus"),
         "ex_json_vs": create_str_data("ex_json_vs"),
-        "ck_guard_time": create_str_data(RandomHexStr(66)),
+        "ck_guard_time": create_str_data(CK_GUARD_TIME),  # 固定值
     }
     Buffer = ckey_struct.build(data)
     BufferLenHex = hex(len(Buffer))[2:].zfill(4)
@@ -379,14 +309,12 @@ def ckey42(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appV
     encrypt_data = tc_tea_encrypt(TEA_CKEY, bytes(Buffer))
     encrypt_data = bytearray(encrypt_data)
     CheckSum = CalcSignature(Buffer)
-    CheckSumBytes = struct.pack('>I', CheckSum)
-    encrypt_data.extend(CheckSumBytes)
+    encrypt_data.extend(struct.pack('>I', CheckSum))
     result = XOR_Array(encrypt_data)
     return "--01" + custom_encode(result).replace('=', '')
 
 # ============== 完整频道列表 ==============
 def generate_channel_list(host):
-    """生成完整频道列表 - 共70+频道"""
     if ':' in host:
         server_ip = host.split(':')[0]
         server_port = host.split(':')[1]
@@ -418,11 +346,6 @@ CCTV17,http://{server_address}/ysp?cnlid=2027249401&livepid=600001810&defn=fhd
 CCTV4K,http://{server_address}/ysp?cnlid=2029810301&livepid=600002264&defn=4k
 CCTV8K,http://{server_address}/ysp?cnlid=2026774101&livepid=600156816&defn=8k
 CGTN,http://{server_address}/ysp?cnlid=2024181701&livepid=600014550&defn=fhd
-CGTN法语,http://{server_address}/ysp?cnlid=2024181801&livepid=600084704&defn=fhd
-CGTN俄语,http://{server_address}/ysp?cnlid=2024181901&livepid=600084758&defn=fhd
-CGTN阿拉伯语,http://{server_address}/ysp?cnlid=2024182001&livepid=600084782&defn=fhd
-CGTN西班牙语,http://{server_address}/ysp?cnlid=2024182101&livepid=600084744&defn=fhd
-CGTN纪录,http://{server_address}/ysp?cnlid=2024182301&livepid=600084781&defn=fhd
 央视VIP,#genre#
 CCTV风云剧场,http://{server_address}/ysp?cnlid=2025637103&livepid=600099658&defn=fhd
 CCTV第一剧场,http://{server_address}/ysp?cnlid=2026874203&livepid=600099655&defn=fhd
@@ -432,11 +355,6 @@ CCTV风云音乐,http://{server_address}/ysp?cnlid=2026874503&livepid=600099660&
 CCTV兵器科技,http://{server_address}/ysp?cnlid=2026874603&livepid=600099649&defn=fhd
 CCTV风云足球,http://{server_address}/ysp?cnlid=2026966203&livepid=600099636&defn=fhd
 CCTV高尔夫网球,http://{server_address}/ysp?cnlid=2026874703&livepid=600099659&defn=fhd
-CCTV女性时尚,http://{server_address}/ysp?cnlid=2026874803&livepid=600099650&defn=fhd
-CCTV文化精品,http://{server_address}/ysp?cnlid=2026874903&livepid=600099653&defn=fhd
-CCTV央视台球,http://{server_address}/ysp?cnlid=2026875003&livepid=600099652&defn=fhd
-CCTV电视指南,http://{server_address}/ysp?cnlid=2026875103&livepid=600099656&defn=fhd
-CCTV卫生健康,http://{server_address}/ysp?cnlid=2025637003&livepid=600099651&defn=fhd
 卫视,#genre#
 北京卫视,http://{server_address}/ysp?cnlid=2024052703&livepid=600002309&defn=fhd
 东方卫视,http://{server_address}/ysp?cnlid=2024054503&livepid=600002483&defn=fhd
@@ -470,35 +388,24 @@ CCTV卫生健康,http://{server_address}/ysp?cnlid=2025637003&livepid=600099651&
 西藏卫视,http://{server_address}/ysp?cnlid=2025558003&livepid=600190403&defn=fhd
 新疆卫视,http://{server_address}/ysp?cnlid=2019927403&livepid=600152138&defn=fhd
 甘肃卫视,http://{server_address}/ysp?cnlid=2025561703&livepid=600190408&defn=fhd
-中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=fhd
-兵团卫视,http://{server_address}/ysp?cnlid=2025990501&livepid=600193252&defn=fhd
-国学频道,http://{server_address}/ysp?cnlid=2029360403&livepid=600213139&defn=fhd"""
+中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=fhd"""
 
 # ============== FastAPI应用 ==============
-app = FastAPI(title="央视频代理", description="支持70+频道直播")
+app = FastAPI()
 
 def get_current_host(request: Request):
     host = request.headers.get('host')
     if host:
         return host
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        server_ip = s.getsockname()[0]
-        s.close()
-        return f"{server_ip}:9006"
-    except:
-        return "localhost:9006"
+    return "localhost:9006"
 
 @app.get("/")
 async def root(request: Request):
     host = get_current_host(request)
-    channel_list = generate_channel_list(host)
-    return Response(content=channel_list, media_type="text/plain; charset=utf-8")
+    return Response(content=generate_channel_list(host), media_type="text/plain; charset=utf-8")
 
 @app.get("/ysp")
 def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
-    """获取直播流"""
     try:
         # 查缓存
         cached_url = get_cached_url(cnlid, livepid, defn)
@@ -550,12 +457,8 @@ def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
             'Connection': "Keep-Alive",
         }
 
-        Platform = params['platform']
         Timestamp = int(time.time())
-        StaGuid = RandomHexStr(32)
-        sdtfrom = 'dcgh'
-
-        ckey = ckey42(Platform, Timestamp, sdtfrom, cnlid, StaGuid, params['appVer'])
+        ckey = ckey42(4330403, Timestamp, "dcgh", cnlid, get_guid(), params['appVer'])
         params.update({"cKey": ckey})
 
         response = requests.get(url, params=params, headers=headers, timeout=15)
@@ -565,9 +468,7 @@ def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
         if not play_url:
             return JSONResponse(content={"error": "获取失败", "detail": data}, status_code=404)
 
-        # 存入缓存
         set_cached_url(cnlid, livepid, defn, play_url)
-
         return RedirectResponse(url=play_url)
 
     except Exception as e:
