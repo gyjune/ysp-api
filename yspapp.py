@@ -279,7 +279,7 @@ def ckey42(Platform, Timestamp, Sdtfrom="fcgo", vid="600002264", guid=None, appV
     result = XOR_Array(encrypt_data)
     return "--01" + custom_encode(result).replace('=', '')
 
-# ============== 频道列表生成 ==============
+# ============== 完整频道列表 ==============
 def generate_channel_list(host):
     if ':' in host:
         server_ip = host.split(':')[0]
@@ -290,83 +290,83 @@ def generate_channel_list(host):
     server_address = f"{server_ip}:{server_port}"
 
     return f"""央视,#genre#
-CCTV1,http://{server_address}/ysp?cnlid=2024078201&livepid=600001859&defn=fhd
-CCTV2,http://{server_address}/ysp?cnlid=2024075401&livepid=600001800&defn=fhd
-CCTV3,http://{server_address}/ysp?cnlid=2024068501&livepid=600001801&defn=fhd
-CCTV4,http://{server_address}/ysp?cnlid=2029797101&livepid=600001814&defn=fhd
-CCTV5,http://{server_address}/ysp?cnlid=2024078401&livepid=600001818&defn=fhd
-CCTV5+,http://{server_address}/ysp?cnlid=2024078001&livepid=600001817&defn=fhd
-CCTV6,http://{server_address}/ysp?cnlid=2013693901&livepid=600108442&defn=fhd
-CCTV7,http://{server_address}/ysp?cnlid=2024072001&livepid=600004092&defn=fhd
-CCTV8,http://{server_address}/ysp?cnlid=2029793001&livepid=600001803&defn=fhd
-CCTV9,http://{server_address}/ysp?cnlid=2024078601&livepid=600004078&defn=fhd
-CCTV10,http://{server_address}/ysp?cnlid=2024078701&livepid=600001805&defn=fhd
-CCTV11,http://{server_address}/ysp?cnlid=2027248701&livepid=600001806&defn=fhd
-CCTV12,http://{server_address}/ysp?cnlid=2027248801&livepid=600001807&defn=fhd
-CCTV13,http://{server_address}/ysp?cnlid=2029797201&livepid=600001811&defn=fhd
-CCTV14,http://{server_address}/ysp?cnlid=2027248901&livepid=600001809&defn=fhd
-CCTV15,http://{server_address}/ysp?cnlid=2027249001&livepid=600001815&defn=fhd
-CCTV16,http://{server_address}/ysp?cnlid=2027249101&livepid=600098637&defn=fhd
+CCTV1,http://{server_address}/ysp?cnlid=2024078201&livepid=600001859&defn=hd
+CCTV2,http://{server_address}/ysp?cnlid=2024075401&livepid=600001800&defn=hd
+CCTV3,http://{server_address}/ysp?cnlid=2024068501&livepid=600001801&defn=hd
+CCTV4,http://{server_address}/ysp?cnlid=2029797101&livepid=600001814&defn=hd
+CCTV5,http://{server_address}/ysp?cnlid=2024078401&livepid=600001818&defn=hd
+CCTV5+,http://{server_address}/ysp?cnlid=2024078001&livepid=600001817&defn=hd
+CCTV6,http://{server_address}/ysp?cnlid=2013693901&livepid=600108442&defn=hd
+CCTV7,http://{server_address}/ysp?cnlid=2024072001&livepid=600004092&defn=hd
+CCTV8,http://{server_address}/ysp?cnlid=2029793001&livepid=600001803&defn=hd
+CCTV9,http://{server_address}/ysp?cnlid=2024078601&livepid=600004078&defn=hd
+CCTV10,http://{server_address}/ysp?cnlid=2024078701&livepid=600001805&defn=hd
+CCTV11,http://{server_address}/ysp?cnlid=2027248701&livepid=600001806&defn=hd
+CCTV12,http://{server_address}/ysp?cnlid=2027248801&livepid=600001807&defn=hd
+CCTV13,http://{server_address}/ysp?cnlid=2029797201&livepid=600001811&defn=hd
+CCTV14,http://{server_address}/ysp?cnlid=2027248901&livepid=600001809&defn=hd
+CCTV15,http://{server_address}/ysp?cnlid=2027249001&livepid=600001815&defn=hd
+CCTV16,http://{server_address}/ysp?cnlid=2027249101&livepid=600098637&defn=hd
 CCTV16(4K),http://{server_address}/ysp?cnlid=2027249301&livepid=600099502&defn=4k
-CCTV17,http://{server_address}/ysp?cnlid=2027249401&livepid=600001810&defn=fhd
+CCTV17,http://{server_address}/ysp?cnlid=2027249401&livepid=600001810&defn=hd
 CCTV4K,http://{server_address}/ysp?cnlid=2029810301&livepid=600002264&defn=4k
 CCTV8K,http://{server_address}/ysp?cnlid=2026774101&livepid=600156816&defn=8k
-CGTN,http://{server_address}/ysp?cnlid=2024181701&livepid=600014550&defn=fhd
-CGTN法语,http://{server_address}/ysp?cnlid=2024181801&livepid=600084704&defn=fhd
-CGTN俄语,http://{server_address}/ysp?cnlid=2024181901&livepid=600084758&defn=fhd
-CGTN阿拉伯语,http://{server_address}/ysp?cnlid=2024182001&livepid=600084782&defn=fhd
-CGTN西班牙语,http://{server_address}/ysp?cnlid=2024182101&livepid=600084744&defn=fhd
-CGTN纪录,http://{server_address}/ysp?cnlid=2024182301&livepid=600084781&defn=fhd
+CGTN,http://{server_address}/ysp?cnlid=2024181701&livepid=600014550&defn=hd
+CGTN法语,http://{server_address}/ysp?cnlid=2024181801&livepid=600084704&defn=hd
+CGTN俄语,http://{server_address}/ysp?cnlid=2024181901&livepid=600084758&defn=hd
+CGTN阿拉伯语,http://{server_address}/ysp?cnlid=2024182001&livepid=600084782&defn=hd
+CGTN西班牙语,http://{server_address}/ysp?cnlid=2024182101&livepid=600084744&defn=hd
+CGTN纪录,http://{server_address}/ysp?cnlid=2024182301&livepid=600084781&defn=hd
 央视VIP,#genre#
-CCTV风云剧场,http://{server_address}/ysp?cnlid=2025637103&livepid=600099658&defn=fhd
-CCTV第一剧场,http://{server_address}/ysp?cnlid=2026874203&livepid=600099655&defn=fhd
-CCTV怀旧剧场,http://{server_address}/ysp?cnlid=2026874303&livepid=600099620&defn=fhd
-CCTV世界地理,http://{server_address}/ysp?cnlid=2026874403&livepid=600099637&defn=fhd
-CCTV风云音乐,http://{server_address}/ysp?cnlid=2026874503&livepid=600099660&defn=fhd
-CCTV兵器科技,http://{server_address}/ysp?cnlid=2026874603&livepid=600099649&defn=fhd
-CCTV风云足球,http://{server_address}/ysp?cnlid=2026966203&livepid=600099636&defn=fhd
-CCTV高尔夫网球,http://{server_address}/ysp?cnlid=2026874703&livepid=600099659&defn=fhd
-CCTV女性时尚,http://{server_address}/ysp?cnlid=2026874803&livepid=600099650&defn=fhd
-CCTV文化精品,http://{server_address}/ysp?cnlid=2026874903&livepid=600099653&defn=fhd
-CCTV央视台球,http://{server_address}/ysp?cnlid=2026875003&livepid=600099652&defn=fhd
-CCTV电视指南,http://{server_address}/ysp?cnlid=2026875103&livepid=600099656&defn=fhd
-CCTV卫生健康,http://{server_address}/ysp?cnlid=2025637003&livepid=600099651&defn=fhd
+CCTV风云剧场,http://{server_address}/ysp?cnlid=2025637103&livepid=600099658&defn=hd
+CCTV第一剧场,http://{server_address}/ysp?cnlid=2026874203&livepid=600099655&defn=hd
+CCTV怀旧剧场,http://{server_address}/ysp?cnlid=2026874303&livepid=600099620&defn=hd
+CCTV世界地理,http://{server_address}/ysp?cnlid=2026874403&livepid=600099637&defn=hd
+CCTV风云音乐,http://{server_address}/ysp?cnlid=2026874503&livepid=600099660&defn=hd
+CCTV兵器科技,http://{server_address}/ysp?cnlid=2026874603&livepid=600099649&defn=hd
+CCTV风云足球,http://{server_address}/ysp?cnlid=2026966203&livepid=600099636&defn=hd
+CCTV高尔夫网球,http://{server_address}/ysp?cnlid=2026874703&livepid=600099659&defn=hd
+CCTV女性时尚,http://{server_address}/ysp?cnlid=2026874803&livepid=600099650&defn=hd
+CCTV文化精品,http://{server_address}/ysp?cnlid=2026874903&livepid=600099653&defn=hd
+CCTV央视台球,http://{server_address}/ysp?cnlid=2026875003&livepid=600099652&defn=hd
+CCTV电视指南,http://{server_address}/ysp?cnlid=2026875103&livepid=600099656&defn=hd
+CCTV卫生健康,http://{server_address}/ysp?cnlid=2025637003&livepid=600099651&defn=hd
 卫视,#genre#
-北京卫视,http://{server_address}/ysp?cnlid=2024052703&livepid=600002309&defn=fhd
-东方卫视,http://{server_address}/ysp?cnlid=2024054503&livepid=600002483&defn=fhd
-江苏卫视,http://{server_address}/ysp?cnlid=2024171103&livepid=600002521&defn=fhd
-浙江卫视,http://{server_address}/ysp?cnlid=2024054703&livepid=600002520&defn=fhd
-湖南卫视,http://{server_address}/ysp?cnlid=2024054803&livepid=600002475&defn=fhd
-湖北卫视,http://{server_address}/ysp?cnlid=2024171203&livepid=600002508&defn=fhd
-广东卫视,http://{server_address}/ysp?cnlid=2024060903&livepid=600002485&defn=fhd
-广西卫视,http://{server_address}/ysp?cnlid=2024060703&livepid=600002509&defn=fhd
-黑龙江卫视,http://{server_address}/ysp?cnlid=2024061003&livepid=600002498&defn=fhd
-海南卫视,http://{server_address}/ysp?cnlid=2024055603&livepid=600002506&defn=fhd
-重庆卫视,http://{server_address}/ysp?cnlid=2024061103&livepid=600002531&defn=fhd
-深圳卫视,http://{server_address}/ysp?cnlid=2024061303&livepid=600002481&defn=fhd
-四川卫视,http://{server_address}/ysp?cnlid=2024061403&livepid=600002516&defn=fhd
-河南卫视,http://{server_address}/ysp?cnlid=2024059703&livepid=600002525&defn=fhd
-东南卫视,http://{server_address}/ysp?cnlid=2024061503&livepid=600002484&defn=fhd
-贵州卫视,http://{server_address}/ysp?cnlid=2024061603&livepid=600002490&defn=fhd
-江西卫视,http://{server_address}/ysp?cnlid=2024061703&livepid=600002503&defn=fhd
-辽宁卫视,http://{server_address}/ysp?cnlid=2024171303&livepid=600002505&defn=fhd
-安徽卫视,http://{server_address}/ysp?cnlid=2024171403&livepid=600002532&defn=fhd
-河北卫视,http://{server_address}/ysp?cnlid=2024171503&livepid=600002493&defn=fhd
-山东卫视,http://{server_address}/ysp?cnlid=2024171603&livepid=600002513&defn=fhd
-天津卫视,http://{server_address}/ysp?cnlid=2019927003&livepid=600152137&defn=fhd
-吉林卫视,http://{server_address}/ysp?cnlid=2025561503&livepid=600190405&defn=fhd
-陕西卫视,http://{server_address}/ysp?cnlid=2025561103&livepid=600190400&defn=fhd
-宁夏卫视,http://{server_address}/ysp?cnlid=2025608503&livepid=600190737&defn=fhd
-内蒙古卫视,http://{server_address}/ysp?cnlid=2025561203&livepid=600190401&defn=fhd
-云南卫视,http://{server_address}/ysp?cnlid=2025561303&livepid=600190402&defn=fhd
-山西卫视,http://{server_address}/ysp?cnlid=2025560803&livepid=600190407&defn=fhd
-青海卫视,http://{server_address}/ysp?cnlid=2025559103&livepid=600190406&defn=fhd
-西藏卫视,http://{server_address}/ysp?cnlid=2025558003&livepid=600190403&defn=fhd
-新疆卫视,http://{server_address}/ysp?cnlid=2019927403&livepid=600152138&defn=fhd
-甘肃卫视,http://{server_address}/ysp?cnlid=2025561703&livepid=600190408&defn=fhd
-中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=fhd
-兵团卫视,http://{server_address}/ysp?cnlid=2025990501&livepid=600193252&defn=fhd
-国学频道,http://{server_address}/ysp?cnlid=2029360403&livepid=600213139&defn=fhd"""
+北京卫视,http://{server_address}/ysp?cnlid=2024052703&livepid=600002309&defn=hd
+东方卫视,http://{server_address}/ysp?cnlid=2024054503&livepid=600002483&defn=hd
+江苏卫视,http://{server_address}/ysp?cnlid=2024171103&livepid=600002521&defn=hd
+浙江卫视,http://{server_address}/ysp?cnlid=2024054703&livepid=600002520&defn=hd
+湖南卫视,http://{server_address}/ysp?cnlid=2024054803&livepid=600002475&defn=hd
+湖北卫视,http://{server_address}/ysp?cnlid=2024171203&livepid=600002508&defn=hd
+广东卫视,http://{server_address}/ysp?cnlid=2024060903&livepid=600002485&defn=hd
+广西卫视,http://{server_address}/ysp?cnlid=2024060703&livepid=600002509&defn=hd
+黑龙江卫视,http://{server_address}/ysp?cnlid=2024061003&livepid=600002498&defn=hd
+海南卫视,http://{server_address}/ysp?cnlid=2024055603&livepid=600002506&defn=hd
+重庆卫视,http://{server_address}/ysp?cnlid=2024061103&livepid=600002531&defn=hd
+深圳卫视,http://{server_address}/ysp?cnlid=2024061303&livepid=600002481&defn=hd
+四川卫视,http://{server_address}/ysp?cnlid=2024061403&livepid=600002516&defn=hd
+河南卫视,http://{server_address}/ysp?cnlid=2024059703&livepid=600002525&defn=hd
+东南卫视,http://{server_address}/ysp?cnlid=2024061503&livepid=600002484&defn=hd
+贵州卫视,http://{server_address}/ysp?cnlid=2024061603&livepid=600002490&defn=hd
+江西卫视,http://{server_address}/ysp?cnlid=2024061703&livepid=600002503&defn=hd
+辽宁卫视,http://{server_address}/ysp?cnlid=2024171303&livepid=600002505&defn=hd
+安徽卫视,http://{server_address}/ysp?cnlid=2024171403&livepid=600002532&defn=hd
+河北卫视,http://{server_address}/ysp?cnlid=2024171503&livepid=600002493&defn=hd
+山东卫视,http://{server_address}/ysp?cnlid=2024171603&livepid=600002513&defn=hd
+天津卫视,http://{server_address}/ysp?cnlid=2019927003&livepid=600152137&defn=hd
+吉林卫视,http://{server_address}/ysp?cnlid=2025561503&livepid=600190405&defn=hd
+陕西卫视,http://{server_address}/ysp?cnlid=2025561103&livepid=600190400&defn=hd
+宁夏卫视,http://{server_address}/ysp?cnlid=2025608503&livepid=600190737&defn=hd
+内蒙古卫视,http://{server_address}/ysp?cnlid=2025561203&livepid=600190401&defn=hd
+云南卫视,http://{server_address}/ysp?cnlid=2025561303&livepid=600190402&defn=hd
+山西卫视,http://{server_address}/ysp?cnlid=2025560803&livepid=600190407&defn=hd
+青海卫视,http://{server_address}/ysp?cnlid=2025559103&livepid=600190406&defn=hd
+西藏卫视,http://{server_address}/ysp?cnlid=2025558003&livepid=600190403&defn=hd
+新疆卫视,http://{server_address}/ysp?cnlid=2019927403&livepid=600152138&defn=hd
+甘肃卫视,http://{server_address}/ysp?cnlid=2025561703&livepid=600190408&defn=hd
+中国教育,http://{server_address}/ysp?cnlid=2022823801&livepid=600171827&defn=hd
+兵团卫视,http://{server_address}/ysp?cnlid=2025990501&livepid=600193252&defn=hd
+国学频道,http://{server_address}/ysp?cnlid=2029360403&livepid=600213139&defn=hd"""
 
 # ============== FastAPI应用 ==============
 app = FastAPI()
@@ -383,7 +383,7 @@ async def root(request: Request):
     return Response(content=generate_channel_list(host), media_type="text/plain; charset=utf-8")
 
 @app.get("/ysp")
-def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
+def ysp(cnlid: str, livepid: str, defn: str = "hd"):
     """获取直播流 - 直接返回 M3U8 内容（和 PHP 版一样）"""
     try:
         # 1. 查缓存（缓存的是处理后的 M3U8 内容）
@@ -447,9 +447,13 @@ def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
         if not play_url:
             return JSONResponse(content={"error": "获取播放地址失败", "detail": data}, status_code=404)
 
-        # 关键优化：替换 CDN 为更快的节点
-        play_url = play_url.replace('alicdn.ysp.cctv.cn', 'cdn.ysp.cctv.cn')
+        # ========== 强制使用最快的 CDN（从 ping 结果确定） ==========
+        # tlivecloud-playback-cdn.ysp.cctv.cn 延迟 13ms，最快
         play_url = play_url.replace('hs-playback.ysp.cctv.cn', 'tlivecloud-playback-cdn.ysp.cctv.cn')
+        play_url = play_url.replace('alicdn.ysp.cctv.cn', 'tlivecloud-playback-cdn.ysp.cctv.cn')
+        play_url = play_url.replace('cdn.ysp.cctv.cn', 'tlivecloud-playback-cdn.ysp.cctv.cn')
+        
+        print(f"[CDN] 使用: {play_url.split('/')[2]}")
 
         # 3. 获取 M3U8 内容
         m3u8_resp = requests.get(play_url, timeout=10, headers={'User-Agent': 'qqlive'})
@@ -459,15 +463,21 @@ def ysp(cnlid: str, livepid: str, defn: str = "fhd"):
 
         m3u8_content = m3u8_resp.text
         
-        # 4. 补全 TS 路径（关键！和 PHP 版完全一样）
+        # 4. 补全 TS 路径，并替换所有 TS 的 CDN
         base_url = play_url[:play_url.rfind('/') + 1]
         lines = m3u8_content.split('\n')
         processed_lines = []
         for line in lines:
             line = line.rstrip('\r')
-            # 如果是 TS 文件路径（不以 # 开头且不是完整 URL），补全路径
             if line and not line.startswith('#') and not line.startswith('http'):
+                # 相对路径，补全
                 processed_lines.append(base_url + line)
+            elif line and line.startswith('http'):
+                # 绝对路径，也替换 CDN
+                for old_domain in ['hs-playback.ysp.cctv.cn', 'alicdn.ysp.cctv.cn', 'cdn.ysp.cctv.cn']:
+                    if old_domain in line:
+                        line = line.replace(old_domain, 'tlivecloud-playback-cdn.ysp.cctv.cn')
+                processed_lines.append(line)
             else:
                 processed_lines.append(line)
         
